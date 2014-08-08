@@ -24,20 +24,28 @@
 %% Types.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 -define(ETS_TID, atom_to_list(?MODULE)).
--define(NAME(N), list_to_atom(?ETS_TID ++ "_" ++ atom_to_list(N))).
+%% -define(NAME(N), list_to_atom(?ETS_TID ++ "_" ++ atom_to_list(N))).
+-define(NAME(N), N).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Exports.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Public API.
+-export([start/0]).
 -export([init/1]).
--export([get/4]).
+-export([get/2, set/4]).
 -export([flush/1, flush/2]).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Public API.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%% @doc Initializes a cache.
+
+%% @doc start the application
+start() ->
+    application:start(simple_cache, permanent).
+
+%% @doc Initializes a cache. Note that when 
+%% caller is terminated, cache is destroyed.
 -spec init(atom()) -> ok.
 init(CacheName) ->
   RealName = ?NAME(CacheName),
@@ -60,18 +68,21 @@ flush(CacheName) ->
 
 %% @doc Tries to lookup Key in the cache, and execute the given FunResult
 %% on a miss.
--spec get(atom(), infinity|pos_integer(), term(), function()) -> term().
-get(CacheName, LifeTime, Key, FunResult) ->
+-spec get(atom(), term()) -> {ok, term()} | {error, not_found}.
+get(CacheName, Key) ->
   RealName = ?NAME(CacheName),
   case ets:lookup(RealName, Key) of
-    [] ->
-      % Not found, create it.
-      V = FunResult(),
-      ets:insert(RealName, {Key, V}),
-      erlang:send_after(
-        LifeTime, simple_cache_expirer, {expire, CacheName, Key}
-      ),
-      V;
-    [{Key, R}] -> R % Found, return the value.
+      [] ->
+	  {error, not_found};
+      [{Key, R}] -> 
+	  R % Found, return the value.
   end.
 
+-spec set(atom(), term(), term(), infinity|pos_integer()) -> {ok, term()} | {error, not_found}.
+set(CacheName, Key, Value, LifeTime) ->
+    RealName = ?NAME(CacheName),
+    ets:insert(RealName, {Key, Value}),
+    erlang:send_after(
+      LifeTime, simple_cache_expirer, {expire, CacheName, Key}
+     ),
+    ok.
